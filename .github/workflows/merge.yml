@@ -1,0 +1,52 @@
+name: Merge PR
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    name: Squash Merge
+    if: >
+      github.event.issue.pull_request &&
+      github.event.comment.body == '/merge'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get PR details
+        id: pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.issue.pull_request.url }}
+        run: |
+          PR_DATA=$(gh api "$PR_URL")
+          echo "state=$(echo "$PR_DATA" | jq -r '.state')" >> "$GITHUB_OUTPUT"
+          echo "title=$(echo "$PR_DATA" | jq -r '.title')" >> "$GITHUB_OUTPUT"
+          echo "number=$(echo "$PR_DATA" | jq -r '.number')" >> "$GITHUB_OUTPUT"
+
+      - name: Check PR is approved
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          REVIEWS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews")
+          APPROVED=$(echo "$REVIEWS" | jq '[.[] | select(.state == "APPROVED")] | length')
+          if [ "$APPROVED" -lt 1 ]; then
+            echo "::error::PR has not been approved yet."
+            exit 1
+          fi
+
+      - name: Squash merge with PR title
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_TITLE: ${{ steps.pr.outputs.title }}
+        run: |
+          gh pr merge "$PR_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --squash \
+            --subject "${PR_TITLE} (#${PR_NUMBER})"
