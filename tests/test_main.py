@@ -23,6 +23,14 @@ class TestGetItem:
 
         assert response.status_code == 404
 
+    def test_strips_extra_fields(self, client, mock_table):
+        mock_table.get_item.return_value = {
+            "Item": {"id": "1", "name": "x", "secret": "leaked"}
+        }
+        response = client.get("/items/1")
+        assert response.status_code == 200
+        assert "secret" not in response.json()
+
 
 class TestListItems:
     def test_returns_items(self, client, mock_table):
@@ -50,6 +58,15 @@ class TestListItems:
 
         assert response.status_code == 200
         mock_table.scan.assert_called_once_with(Limit=5)
+
+    def test_strips_extra_fields(self, client, mock_table):
+        items = [{"id": "1", "name": "a", "secret": "leaked"}]
+        mock_table.scan.return_value = {"Items": items, "Count": 1}
+
+        response = client.get("/items")
+
+        assert response.status_code == 200
+        assert "secret" not in response.json()["items"][0]
 
     def test_missing_keys_in_response(self, client, mock_table):
         mock_table.scan.return_value = {}
